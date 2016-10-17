@@ -6,6 +6,13 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [jepsen "0.1.3-SNAPSHOT"]
                  [org.apache.kudu/kudu-client "1.1.0-SNAPSHOT" :exclusions [org.slf4j/slf4j-api]]
-                 [org.apache.kudu/kudu-client "1.1.0-SNAPSHOT" :exclusions [org.slf4j/slf4j-api] :classifier "tests"]])
-
-; shit happens
+                 [org.apache.kudu/kudu-client "1.1.0-SNAPSHOT" :exclusions [org.slf4j/slf4j-api] :classifier "tests"]]
+  :jvm-opts ["-Xmx12g"
+             "-XX:+UseConcMarkSweepGC"
+             "-XX:+UseParNewGC"
+             "-XX:+CMSParallelRemarkEnabled"
+             "-XX:+AggressiveOpts"
+             "-XX:+UseFastAccessorMethods"
+             "-XX:MaxInlineLevel=32"
+             "-XX:MaxRecursiveInlineLevel=2"
+             "-server"])

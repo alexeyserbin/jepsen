@@ -1,32 +1,78 @@
 (ns jepsen.kudu.client
+  "Thin wrappers around Kudu's java client."
   (:require [clojure.tools.logging :refer :all]
-            [clojure.java.io    :as io]
-            [clojure.string     :as str])
-  (:import [org.apache.kudu.client BaseKuduTest
-                                   KuduClient$KuduClientBuilder]))
+            [clojure.pprint :refer [pprint]])
+  (:import [org.apache.kudu ColumnSchema
+                            ColumnSchema$ColumnSchemaBuilder
+                            Schema
+                            Type])
+  (:import [org.apache.kudu.client AbstractKuduScannerBuilder
+                                   AsyncKuduScanner$ReadMode
+                                   BaseKuduTest
+                                   CreateTableOptions
+                                   KuduClient
+                                   KuduClient$KuduClientBuilder
+                                   KuduPredicate
+                                   KuduPredicate$ComparisonOp
+                                   KuduScanner
+                                   KuduSession
+                                   KuduTable
+                                   OperationResponse
+                                   PartialRow
+                                   RowResult
+                                   RowResultIterator]))
 
 (defn sync-client
   "Builds and returns a new synchronous Kudu client."
   [master-addresses]
-  (def builder (new KuduClient$KuduClientBuilder master-addresses))
-  (def client (. builder build))
-  client)
+  (let [builder (new KuduClient$KuduClientBuilder master-addresses)
+        client (. builder build)]
+    client))
+
+(defn close-client
+  [sync-client]
+  (try (.close sync-client) (catch Exception e (info "Error closing client: " e))))
+
+(defn column-schema
+  ([name type] (.build (.key (new ColumnSchema$ColumnSchemaBuilder name, type) false)))
+  ([name type key?] (.build (.key (new ColumnSchema$ColumnSchemaBuilder name, type) key?))))
 
 (defn create-table
-  "Creates and returns a new KuduTable with the schema:
-   (key int32, column1_i int32, column2_s int32, column3_s string)
+  [sync-client name schema options]
+  (.createTable sync-client name schema options))
 
-   The table will be range partitioned on the key. The ranges are:
-   [  0,  50)
-   [ 50, 100)
-   [200, 300)
+(defn open-table
+  [sync-client name]
+  (.openTable sync-client name))
 
-   This fails with an exception if the table already exists."
-  [name sync-client]
-  (def options (BaseKuduTest/getBasicTableOptionsWithNonCoveredRange))
-  (def schema (BaseKuduTest/getBasicSchema))
-  (def table (.createTable sync-client name schema options))
-  table)
+;; Transforms a RowResult into a tuple
+(defn rr->tuple
+  [row-result]
+  (let [columns (.getColumns (.getSchema row-result))]
+    (into {}
+          (for [[idx column] (map-indexed vector columns)]
+            (let [name (.getName column)
+                  value (case (.ordinal (.getType column))
+                          ;; Clojure transforms enums in literals
+                          ;; so we have to use ordinals :(
+                          0 (.getByte row-result idx)
+                          1 (.getShort row-result idx)
+                          2 (.getInt row-result idx)
+                          3 (.getLong row-result idx)
+                          4 (.getBinaryCopy row-result idx)
+                          5 (.getString row-result idx)
+                          6 (.getBoolean row-result idx)
+                          7 (.getFloat row-result idx)
+                          8 (.getDouble row-result idx)
+                          9 (.getLong row-result idx))]
+              {(keyword name) value})))))
 
-
-
+;; Drains a scanner to a vector of tuples.
+(defn drain-scanner->tuples
+  [scanner]
+  (let [result (atom [])]
+    (while (.hasMoreRows scanner)
+      (do (let [rr-iter (.nextRows scanner)]
+            (while (.hasNext rr-iter)
+              (do (swap! result conj (rr->tuple (.next rr-iter))))))))
+    @result))
