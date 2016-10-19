@@ -12,6 +12,7 @@ if [ ! -f ~/.ssh/known_hosts ]; then
     for f in $(seq 1 5);do
 	ssh-keyscan -t rsa n$f >> ~/.ssh/known_hosts
     done
+    ssh-keyscan -t rsa m1 >> ~/.ssh/known_hosts
 fi
 
 # TODO: assert that SSH_PRIVATE_KEY==~/.ssh/id_rsa
