@@ -14,14 +14,27 @@
             [jepsen.os.debian   :as debian]
             [jepsen.kudu.nemesis :as kn]))
 
+;; TODO make it possible to choose between nightly builds and archived ones
+;; (def kudu-repo-name "kudu-nightly")
+;; (def kudu-repo-apt-line "deb http://repos.jenkins.cloudera.com/kudu1.1.0-nightly/debian/jessie/amd64/kudu jessie-kudu1.1.0 contrib")
+
 ;; TODO allow to replace the binaries with locally built ones
+(def kudu-repo-url "http://repos.jenkins.cloudera.com/kudu-nightly/debian/jessie/amd64/kudu")
+(def kudu-pkg-release "jessie-kudu1.2.0")
 (def kudu-repo-name "kudu-nightly")
-(def kudu-repo-apt-line "deb http://repos.jenkins.cloudera.com/kudu-nightly/debian/jessie/amd64/kudu jessie-kudu1.1.0 contrib")
+(def kudu-repo-apt-line (str "deb" " " kudu-repo-url " " kudu-pkg-release " " "contrib"))
+;;(def kudu-repo-apt-line "deb http://repos.jenkins.cloudera.com/kudu-nightly/debian/jessie/amd64/kudu jessie-kudu1.2.0 contrib")
 
 (defn concatenate-addresses
   "Returns a list of the Kudu master addresses, given a list of node names."
   [hosts]
   (str/join "," (map #(str (name %) ":7051") hosts)))
+
+(defn ntp-in-sync?
+  "If the NTP server is in sync state?"
+  []
+  (try ((c/exec :ntp-wait :-n1 :-s1) true)
+       (catch RuntimeException _ false)))
 
 (defn kudu-cfg-master
   [test]
@@ -43,20 +56,33 @@
              "--fs_data_dirs=/var/lib/kudu/tserver"
              "--raft_heartbeat_interval_ms=50"]))
 
-(def ntp-common-opts ["statistics loopstats peerstats clockstats"
-                      "filegen loopstats file loopstats type day enable"
-                      "filegen peerstats file peerstats type day enable"
-                      "filegen clockstats file clockstats type day enable"
-                      "driftfile /var/lib/ntp/ntp.drift"
-                      "logconfig =syncstatus +allevents +allinfo +allstatus"
-                      "logfile /var/log/ntpd.log"
-                      "statsdir /var/log/ntpstats/"
-                      "server 127.127.1.0" 
-                      "fudge 127.127.1.0 stratum 10"])
+(def ntpd-driftfile "/var/lib/ntp/ntp.drift")
 
-(def ntp-server-opts [])
+(def ntp-common-opts
+  ["tinker panic 0"
+   "enable kernel"
+   "enable ntp"
+   "enable pps"
+   "statistics loopstats peerstats clockstats sysstats"
+   "filegen loopstats file loopstats type day enable"
+   "filegen peerstats file peerstats type day enable"
+   "filegen clockstats file clockstats type day enable"
+   "filegen sysstats file sysstats type day enable"
+   "logconfig =syncall +eventsall +clockall"
+   "logfile /var/log/ntpd.log"
+   "statsdir /var/log/ntpstats/"
+   (str "driftfile " ntpd-driftfile)])
 
-(defn ntp-server-config [] (str/join "\n" (into [] (concat ntp-common-opts ntp-server-opts))))
+(def ntp-server-opts
+  ["enable calibrate"
+   "server 127.127.1.0 burst iburst minpoll 4 maxpoll 4"
+   "fudge 127.127.1.0 stratum 10"])
+
+
+(defn ntp-server-config
+  []
+  (str/join "\n" (into [] (concat ntp-common-opts ntp-server-opts))))
+
 (defn ntp-slave-config
   [masters]
   (str/join "\n"
@@ -73,6 +99,8 @@
       (c/su
         (info node "Setting up environment.")
         (debian/add-repo! kudu-repo-name kudu-repo-apt-line)
+        (c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
+                :apt-key :add :-)
         (debian/update!)
         (info node "installing Kudu")
 
@@ -93,16 +121,18 @@
 
         (c/exec :service :rsyslog :start)
 
-        (when (.contains (:masters test) node)
-          (c/exec :echo (ntp-server-config) :> "/etc/ntp.conf"))
-
-        (when (.contains (:tservers test) node)
-          (c/exec :echo (ntp-slave-config (:masters test)):> "/etc/ntp.conf"))
-
-        ;; TODO for NTP to be stable we should only start it (not restart it)
-        ;; but it needs to be restarted if the config params change.
-        ;; If the kudu daemons keep failing to start change this from :restart to :start.
-        (c/exec :service :ntp :start)
+        ;; When ntpd is not in synchronized state, revamp its configs
+        ;; and restart the ntpd.
+        (when (not (ntp-in-sync?))
+          (c/exec :service :ntp :stop "||" :true)
+          (c/exec :echo "NTPD_OPTS='-g -N'" :> "/etc/default/ntp")
+          (when (.contains (:masters test) node)
+            (c/exec :echo (ntp-server-config) :> "/etc/ntp.conf"))
+          (when (.contains (:tservers test) node)
+            (c/exec :echo (ntp-slave-config (:masters test)):> "/etc/ntp.conf"))
+          (c/exec :service :ntp :start)
+          ;; Wait for 5 minutes max for ntpd to get into synchronized state.
+          (c/exec :ntp-wait :-s1 :-n300))
 
         (when (.contains (:masters test) node)
             (info node "Starting Kudu Master")
