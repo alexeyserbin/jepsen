@@ -6,10 +6,10 @@
             [clojure.string :as str]
             [clojure.pprint :refer [pprint]]
             [jepsen
+             [control :as c :refer [|]]
              [db :as db]
              [net :as net]
              [tests :as tests]
-             [control :as c :refer [|]]
              [util :refer [meh]]]
             [jepsen.os.debian   :as debian]
             [jepsen.kudu.nemesis :as kn]))
@@ -62,13 +62,13 @@
   ["tinker panic 0"
    "enable kernel"
    "enable ntp"
-   "enable pps"
+   "enable stats"
    "statistics loopstats peerstats clockstats sysstats"
    "filegen loopstats file loopstats type day enable"
    "filegen peerstats file peerstats type day enable"
    "filegen clockstats file clockstats type day enable"
    "filegen sysstats file sysstats type day enable"
-   "logconfig =syncall +eventsall +clockall"
+   "logconfig =syncall +clockall +sysall +peerall"
    "logfile /var/log/ntpd.log"
    "statsdir /var/log/ntpstats/"
    (str "driftfile " ntpd-driftfile)])
@@ -97,12 +97,12 @@
   (reify db/DB
     (setup! [_ test node]
       (c/su
-        (info node "Setting up environment.")
+        (info node "Setting up environment")
         (debian/add-repo! kudu-repo-name kudu-repo-apt-line)
         (c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
                 :apt-key :add :-)
         (debian/update!)
-        (info node "installing Kudu")
+        (info node "Installing Kudu")
 
         ;; Install tserver, master and ntp in all nodes.
         (debian/install ["kudu-tserver" "kudu-master" "ntp"])
@@ -146,7 +146,7 @@
         (info node "Kudu ready")))
 
     (teardown! [_ test node]
-      (info node "tearing down Kudu")
+      (info node "Tearing down Kudu")
       (c/su
         (when (.contains (:masters test) node)
           (info node "Stopping Kudu Master")
@@ -161,9 +161,9 @@
       ;; TODO collect log-files and collect table data, for debugging.
       (info node "Kudu stopped"))))
 
-;; Merges the common options for all kudu tests with the specific options set on the
-;; test itself. This does not include 'db' or 'nodes'.
 (defn common-options
+  "Merges the common options for all Kudu tests with the specific options
+  set on the test itself. This does not include 'db' or 'nodes'."
   [opts]
   (let [common-opts       {:os                debian/os
                            :name              (str "apache-kudu-" (:name opts) "-test")

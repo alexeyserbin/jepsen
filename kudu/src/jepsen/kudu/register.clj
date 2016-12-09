@@ -1,9 +1,10 @@
 (ns jepsen.kudu.register
   "Simple linearizability test for a read/write register."
   (:refer-clojure :exclude [test])
-  (:require [jepsen [kudu :as kudu]
+  (:require [jepsen
+             [kudu :as kudu]
              [client :as client]
-             [util :refer [meh]]
+             [util :refer [majority]]
              [checker    :as checker]
              [generator  :as gen]
              [nemesis    :as nemesis]]
@@ -53,7 +54,14 @@
        :num_replicas 5 ;; (count (:tservers test))
        ;; :num_replicas 1
        ;; :nemesis  nemesis/noop
-       :nemesis (kn/partition-random-halves)
+       ;; :nemesis (kn/partition-random-halves)
+       ;; :nemesis (kn/partition-majorities-ring)
+       ;; :nemesis (nemesis/hammer-time "kudu-master")
+       ;; :nemesis (nemesis/hammer-time (comp (partial take 3) shuffle
+       ;;                                     kn/replace-nodes) "kudu-tserver")
+       :nemesis (kn/kill-process-start-service
+                  (comp (partial take 3) shuffle kn/replace-nodes)
+                  "kudu-tserver" "kudu-tserver")
        :model   (model/register)
        :generator (->> (gen/reserve 5 (gen/mix [w r]) r)
                        (gen/delay 1/2)
@@ -62,7 +70,7 @@
                                           {:type :info, :f :start}
                                           (gen/sleep 5)
                                           {:type :info, :f :stop}])))
-                       (gen/time-limit 60))
+                       (gen/time-limit 32))
        :checker (checker/compose
                   {:perf   (checker/perf)
                    :linear checker/linearizable})}

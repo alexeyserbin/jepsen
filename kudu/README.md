@@ -10,8 +10,9 @@ FIXME
 
 ### Memory-related issues
 The Knossos take a lot of resources to run, so make sure to provide at least
-4GB for the 'jepsen-control' docker container.  Otherwise, OOM killer might
-kill corresponding Java process.
+6GB for the 'jepsen-control' docker container.  Otherwise, OOM killer might
+kill corresponding Java process while jepsen is doing analysis of the test
+results.
 
 ### NTP-related issues
 If running jepsen.kudu on Docker for Mac (not Docker Toolbox), make sure
