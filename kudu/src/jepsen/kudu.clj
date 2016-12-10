@@ -11,19 +11,22 @@
              [net :as net]
              [tests :as tests]
              [util :refer [meh]]]
-            [jepsen.os.debian   :as debian]
+            [jepsen.control.util :as cu]
+            [jepsen.os.debian :as debian]
             [jepsen.kudu.nemesis :as kn]))
 
-;; TODO make it possible to choose between nightly builds and archived ones
-;; (def kudu-repo-name "kudu-nightly")
-;; (def kudu-repo-apt-line "deb http://repos.jenkins.cloudera.com/kudu1.1.0-nightly/debian/jessie/amd64/kudu jessie-kudu1.1.0 contrib")
+;; TODO make it possible to set the version via options
+(def kudu-version "1.2.0")
 
 ;; TODO allow to replace the binaries with locally built ones
-(def kudu-repo-url "http://repos.jenkins.cloudera.com/kudu-nightly/debian/jessie/amd64/kudu")
-(def kudu-pkg-release "jessie-kudu1.2.0")
+(def kudu-repo-url
+  (str "http://repos.jenkins.cloudera.com/kudu" kudu-version
+       "-nightly/debian/jessie/amd64/kudu"))
+(def kudu-pkg-os-release (str "jessie-kudu" kudu-version))
 (def kudu-repo-name "kudu-nightly")
-(def kudu-repo-apt-line (str "deb" " " kudu-repo-url " " kudu-pkg-release " " "contrib"))
-;;(def kudu-repo-apt-line "deb http://repos.jenkins.cloudera.com/kudu-nightly/debian/jessie/amd64/kudu jessie-kudu1.2.0 contrib")
+(def kudu-repo-apt-line
+  (str "deb " kudu-repo-url " " kudu-pkg-os-release " contrib"))
+(def kudu-required-packages [:kudu-master :kudu-tserver :ntp])
 
 (defn concatenate-addresses
   "Returns a list of the Kudu master addresses, given a list of node names."
@@ -33,7 +36,8 @@
 (defn ntp-in-sync?
   "If the NTP server is in sync state?"
   []
-  (try ((c/exec :ntp-wait :-n1 :-s1) true)
+  (try (c/exec :ntp-wait :-n1 :-s1)
+       true
        (catch RuntimeException _ false)))
 
 (defn kudu-cfg-master
@@ -98,32 +102,43 @@
     (setup! [_ test node]
       (c/su
         (info node "Setting up environment")
-        (debian/add-repo! kudu-repo-name kudu-repo-apt-line)
-        (c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
-                :apt-key :add :-)
-        (debian/update!)
-        (info node "Installing Kudu")
-
-        ;; Install tserver, master and ntp in all nodes.
-        (debian/install ["kudu-tserver" "kudu-master" "ntp"])
-
-        ;; Install the masters flag file in all the servers.
-        (c/exec :echo (str (slurp (io/resource "kudu.flags"))
-                           "\n"
-                           (kudu-cfg-master test))
-                :> "/etc/kudu/conf/master.gflagfile")
-
-        ;; Install the tservers flag file in all servers.
-        (c/exec :echo (str (slurp (io/resource "kudu.flags"))
-                           "\n"
-                           (kudu-cfg-tserver test))
-                :> "/etc/kudu/conf/tserver.gflagfile")
 
         (c/exec :service :rsyslog :start)
 
+        (let [repo-file (str "/etc/apt/sources.list.d/"
+                             (name kudu-repo-name) ".list")]
+          (when-not (cu/exists? repo-file)
+            (info "Adding " kudu-repo-name " package repositoy")
+            (debian/add-repo! kudu-repo-name kudu-repo-apt-line)
+            (info "Fetching " kudu-repo-name " package key")
+            (c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
+                    :apt-key :add :-)))
+
+        ;;(c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
+        ;;        :apt-key :add :-)
+
+        (when-not (debian/installed? kudu-required-packages)
+          (info node "Installing Kudu")
+          (debian/update!)
+
+          ;; Install tserver, master and ntp in all nodes.
+          (debian/install kudu-required-packages)
+
+          ;; Install the masters flag file in all the servers.
+          (c/exec :echo (str (slurp (io/resource "kudu.flags"))
+                             "\n"
+                             (kudu-cfg-master test))
+                  :> "/etc/kudu/conf/master.gflagfile")
+
+          ;; Install the tservers flag file in all servers.
+          (c/exec :echo (str (slurp (io/resource "kudu.flags"))
+                             "\n"
+                             (kudu-cfg-tserver test))
+                  :> "/etc/kudu/conf/tserver.gflagfile"))
+
         ;; When ntpd is not in synchronized state, revamp its configs
         ;; and restart the ntpd.
-        (when (not (ntp-in-sync?))
+        (when-not (ntp-in-sync?)
           (c/exec :service :ntp :stop "||" :true)
           (c/exec :echo "NTPD_OPTS='-g -N'" :> "/etc/default/ntp")
           (when (.contains (:masters test) node)
@@ -141,7 +156,6 @@
         (when (.contains (:tservers test) node)
             (info node "Starting Kudu Tablet Server")
             (c/exec :service :kudu-tserver :restart))
-
 
         (info node "Kudu ready")))
 

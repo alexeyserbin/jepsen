@@ -60,7 +60,7 @@
        ;; :nemesis (nemesis/hammer-time (comp (partial take 3) shuffle
        ;;                                     kn/replace-nodes) "kudu-tserver")
        :nemesis (kn/kill-process-start-service
-                  (comp (partial take 3) shuffle kn/replace-nodes)
+                  (comp (partial take 2) shuffle kn/replace-nodes)
                   "kudu-tserver" "kudu-tserver")
        :model   (model/register)
        :generator (->> (gen/reserve 5 (gen/mix [w r]) r)
