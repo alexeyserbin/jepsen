@@ -25,14 +25,16 @@
     (setup! [_ test _]
       ;; Create the client and create/open the table.
       (let [kclient (kc/sync-client (:master-addresses test))
+            table-name (:table-name test)
             ktable (locking table-created?
-                     (if (compare-and-set! table-created? false true)
+                     (when (compare-and-set! table-created? false true)
                        (kc/create-table kclient
-                                        (:table-name test)
+                                        table-name
                                         kt/kv-table-schema
-                                        (kt/kv-table-options [] (:num_replicas test)))
-                       (kc/open-table kclient (:table-name test))))]
+                                        (kt/kv-table-options [] (:num_replicas test))))
+                       (kc/open-table kclient table-name))]
         (client table-created? kclient ktable)))
+
 
     (invoke! [_ _ op]
       (case (:f op)
@@ -50,27 +52,19 @@
     (merge
       {:name    "rw-register"
        :client (client (atom false) nil nil)
-       :concurrency 10
+       :concurrency 8
        :num_replicas 5 ;; (count (:tservers test))
        ;; :num_replicas 1
-       ;; :nemesis  nemesis/noop
-       ;; :nemesis (kn/partition-random-halves)
-       ;; :nemesis (kn/partition-majorities-ring)
-       ;; :nemesis (nemesis/hammer-time "kudu-master")
-       ;; :nemesis (nemesis/hammer-time (comp (partial take 3) shuffle
-       ;;                                     kn/replace-nodes) "kudu-tserver")
-       :nemesis (kn/kill-process-start-service
-                  (comp (partial take 2) shuffle kn/replace-nodes)
-                  "kudu-tserver" "kudu-tserver")
+       :nemesis  nemesis/noop
        :model   (model/register)
        :generator (->> (gen/reserve 5 (gen/mix [w r]) r)
                        (gen/delay 1/2)
                        (gen/nemesis
-                         (gen/seq (cycle [(gen/sleep 2)
+                         (gen/seq (cycle [(gen/sleep 5)
                                           {:type :info, :f :start}
                                           (gen/sleep 5)
                                           {:type :info, :f :stop}])))
-                       (gen/time-limit 32))
+                       (gen/time-limit 42))
        :checker (checker/compose
                   {:perf   (checker/perf)
                    :linear checker/linearizable})}

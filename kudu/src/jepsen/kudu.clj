@@ -40,6 +40,13 @@
        true
        (catch RuntimeException _ false)))
 
+(defn kudu-master-in-service?
+  "If the Kudu master server provides its services already?"
+  [node]
+  (try (c/exec :kudu :table :list node)
+       true
+       (catch RuntimeException _ false)))
+
 (defn kudu-cfg-master
   [test]
   (def flags ["--fs_wal_dir=/var/lib/kudu/master"
@@ -151,11 +158,21 @@
 
         (when (.contains (:masters test) node)
             (info node "Starting Kudu Master")
-            (c/exec :service :kudu-master :restart))
+            (c/exec :service :kudu-master :restart)
+            ;; Wait for master services avaiable (awaiting for catalog manager)
+            (loop [iteration 0]
+              (when-not (kudu-master-in-service? node)
+                (if (> iteration 10)
+                  (c/exec :false)
+                  (do
+                    (c/exec :sleep :1)
+                    (recur (inc iteration))))))
+            (c/exec :kudu :master :status node))
 
         (when (.contains (:tservers test) node)
             (info node "Starting Kudu Tablet Server")
-            (c/exec :service :kudu-tserver :restart))
+            (c/exec :service :kudu-tserver :restart)
+            (c/exec :kudu :tserver :status node))
 
         (info node "Kudu ready")))
 
