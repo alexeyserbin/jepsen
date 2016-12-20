@@ -1,6 +1,5 @@
 (ns jepsen.kudu-test
   (:require [clojure.test :refer :all]
-            [clojure.string :as string]
             [jepsen.core :as jepsen]
             [jepsen.nemesis :as nemesis]
             [jepsen.tests :as tests]
@@ -9,58 +8,59 @@
             [jepsen.kudu.register :as kudu-register]))
 
 (defn check
-  [testname nemesis]
-  (is (:valid? (:results (jepsen/run! (testname {:nemesis nemesis}))))))
+  [tcasefun opts]
+  (is (:valid? (:results (jepsen/run! (tcasefun opts))))))
 
-;; Array of nemeses to run against
-(def nemeses
-  [(kn/partition-majorities-ring)
-   (kn/partition-random-halves)
-   (nemesis/hammer-time "kudu-master")
-   (nemesis/hammer-time
-     (comp (partial take 3) shuffle kn/replace-nodes)
-     "kudu-tserver")
-   (kn/kill-restart-service
-     (comp (partial take 2) shuffle kn/replace-nodes)
-     "kudu-tserver" "kudu-tserver")])
+(defmacro dt
+  [tfun tsuffix topts]
+  (let [tname# (symbol (str (name tfun) "-" tsuffix))]
+  `(clojure.test/deftest ~tname# (check ~tfun ~topts))))
 
-; Helper macro to create deftest
-(defmacro def-h
-  [tname suffix base nemesis]
-  `(do
-     (deftest ~(symbol (str tname suffix)) (check ~base ~nemesis))))
+(defn dt-func
+  [tfun tsuffix topts]
+  `(dt ~tfun ~tsuffix ~topts))
 
-(defmacro def-tests
-  [base]
-  (let [name# (-> base (name)
-                  (string/replace #"^kudu-register/" "")
-                  (string/replace #"-test$" ""))]
-  `(do
-     (def-h ~name# "-random-halves"           ~base
-       (kn/partition-random-halves))
+(defmacro instantiate-tests
+  [tfun config topts]
+  (let [seqtfun# (reduce (fn [out _] (conj out tfun)) [] (eval config))
+        seqtsuffix# (reduce (fn [out e]
+                              (conj out (:suffix e))) [] (eval config))
+        seqtopts# (reduce (fn [out e]
+                            (conj out (merge (eval topts)
+																					   {:nemesis (:nemesis e)})))
+                          [] (eval config))]
+    `(do ~@(map dt-func seqtfun# seqtsuffix# seqtopts#))))
 
-     (def-h ~name# "-majorities-ring"         ~base
-       (kn/partition-majorities-ring))
+;; Specific tests and their configurations.
+(def register-test kudu-register/register-test)
+(def register-test-configs
+  [{:suffix "random-halves"
+    :nemesis '(kn/partition-random-halves)}
+   {:suffix "majorities-ring"
+    :nemesis '(kn/partition-majorities-ring)}
+   {:suffix "kill-restart-2-tservers"
+    :nemesis '(kn/kill-restart-service
+                (comp (partial take 2) shuffle kn/replace-nodes)
+                "kudu-tserver")}
+   {:suffix "kill-restart-3-tservers"
+    :nemesis '(kn/kill-restart-service
+                (comp (partial take 3) shuffle kn/replace-nodes)
+                "kudu-tserver")}
+   {:suffix "hammer-all-tservers"
+    :nemesis '(nemesis/hammer-time
+                (comp shuffle kn/replace-nodes)
+                "kudu-tserver")}
+   {:suffix "hammer-3-tservers"
+    :nemesis '(nemesis/hammer-time
+                (comp (partial take 3) shuffle kn/replace-nodes)
+                "kudu-tserver")}
+   {:suffix "hammer-1-tserver"
+    :nemesis '(nemesis/hammer-time
+                (comp (partial take 1) shuffle kn/replace-nodes)
+                "kudu-tserver")}])
 
-     (def-h ~name# "-kill-restart-2-tservers" ~base
-       (kn/kill-restart-service
-         (comp (partial take 2) shuffle kn/replace-nodes) "kudu-tserver"))
+(defmacro instantiate-all-kudu-tests
+  [opts]
+  `(instantiate-tests register-test register-test-configs ~opts))
 
-     (def-h ~name# "-kill-restart-3-tservers" ~base
-       (kn/kill-restart-service
-         (comp (partial take 3) shuffle kn/replace-nodes) "kudu-tserver"))
-
-     (def-h ~name# "-hammer-all-tservers"     ~base
-       (nemesis/hammer-time
-         (comp shuffle kn/replace-nodes) "kudu-tserver"))
-
-     (def-h ~name# "-hammer-3-tservers"       ~base
-       (nemesis/hammer-time
-         (comp (partial take 3) shuffle kn/replace-nodes) "kudu-tserver"))
-
-     (def-h ~name# "-hammer-1-tserver"         ~base
-       (nemesis/hammer-time
-         (comp (partial take 1) shuffle kn/replace-nodes) "kudu-tserver"))
-     )))
-
-(def-tests kudu-register/register-test)
+(instantiate-all-kudu-tests {})

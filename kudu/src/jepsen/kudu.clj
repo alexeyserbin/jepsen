@@ -121,9 +121,6 @@
             (c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
                     :apt-key :add :-)))
 
-        ;;(c/exec :curl :-fLSs (str kudu-repo-url "/" "archive.key") |
-        ;;        :apt-key :add :-)
-
         (when-not (debian/installed? kudu-required-packages)
           (info node "Installing Kudu")
           (debian/update!)
@@ -156,23 +153,25 @@
           ;; Wait for 5 minutes max for ntpd to get into synchronized state.
           (c/exec :ntp-wait :-s1 :-n300))
 
+
         (when (.contains (:masters test) node)
-            (info node "Starting Kudu Master")
-            (c/exec :service :kudu-master :restart)
-            ;; Wait for master services avaiable (awaiting for catalog manager)
-            (loop [iteration 0]
-              (when-not (kudu-master-in-service? node)
-                (if (> iteration 10)
-                  (c/exec :false)
-                  (do
-                    (c/exec :sleep :1)
-                    (recur (inc iteration))))))
-            (c/exec :kudu :master :status node))
+          (info node "Starting Kudu Master")
+          (c/exec :service :kudu-master :restart)
+          ;; Wait for master services avaiable (awaiting for catalog manager)
+          (loop [iteration 0]
+            (when-not (kudu-master-in-service? node)
+              (if (> iteration 10)
+                (c/exec :false)
+                (do
+                  (c/exec :sleep :1)
+                  (recur (inc iteration))))))
+          (c/exec :kudu :master :status node))
 
         (when (.contains (:tservers test) node)
-            (info node "Starting Kudu Tablet Server")
-            (c/exec :service :kudu-tserver :restart)
-            (c/exec :kudu :tserver :status node))
+          (info node "Starting Kudu Tablet Server")
+          (c/exec :service :kudu-tserver :restart)
+          (c/exec :kudu :tserver :status node))
+
 
         (info node "Kudu ready")))
 
@@ -192,29 +191,32 @@
       ;; TODO collect log-files and collect table data, for debugging.
       (info node "Kudu stopped"))))
 
-(defn common-options
+(defn merge-options
   "Merges the common options for all Kudu tests with the specific options
   set on the test itself. This does not include 'db' or 'nodes'."
   [opts]
-  (let [common-opts       {:os                debian/os
-                           :name              (str "apache-kudu-" (:name opts) "-test")
-                           :net               net/iptables
-                           :db                (db)
-                           :client            (:client opts)
-                           ;; The list of nodes that will run tablet servers.
-                           :tservers          [:n1 :n2 :n3 :n4 :n5]
-                           ;; The list of nodes that will run the kudu master.
-                           :masters           [:m1]
-                           :table-name        (str (:name opts) "-" (System/currentTimeMillis))
-                           :ranges            []}
-        test-opts         (dissoc opts :name :nodes :client :nemesis)
-        additional-opts   {:master-addresses (concatenate-addresses (:masters common-opts))
-                           :nodes            (into [] (concat (:tservers common-opts) (:masters common-opts)))
-                           :nemesis          (:nemesis opts)}]
-    (merge common-opts test-opts additional-opts)))
+  (let [default-opts {:os         debian/os
+                      :net        net/iptables
+                      :db         (db)
+                      ;; The list of nodes that will run tablet servers.
+                      :tservers   [:n1 :n2 :n3 :n4 :n5]
+                      ;; The list of nodes that will run the kudu master.
+                      :masters    [:m1]
+                      :table-name
+                        (str (:name opts) "-" (System/currentTimeMillis))
+                      :ranges      []}
+
+        custom-opts (merge default-opts opts)
+
+        derived-opts {:master-addresses
+                        (concatenate-addresses (:masters custom-opts))
+                      :nodes
+                        (into [] (concat (:tservers custom-opts)
+                                         (:masters custom-opts)))}]
+    (merge custom-opts derived-opts)))
 
 ;; Common setup for all kudu tests.
 (defn kudu-test
   "Sets up the test parameters."
   [opts]
-  (common-options opts))
+  (merge-options opts))
