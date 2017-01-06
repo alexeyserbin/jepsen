@@ -1,7 +1,4 @@
 # This overrides all flags in a flag file
---fromenv=rpc_bind_addresses
---fromenv=log_dir
-
 --unlock_experimental_flags
 --unlock_unsafe_flags
 --logtostderr

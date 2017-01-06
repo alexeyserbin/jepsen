@@ -52,7 +52,7 @@
     (merge
       {:name    "rw-register"
        :client (client (atom false) nil nil)
-       :concurrency 8
+       :concurrency 10
        :num_replicas 5 ;; (count (:tservers test))
        ;; :num_replicas 1
        :nemesis  nemesis/noop

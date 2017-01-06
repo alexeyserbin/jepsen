@@ -45,8 +45,8 @@
   [sync-client name]
   (.openTable sync-client name))
 
-;; Transforms a RowResult into a tuple
 (defn rr->tuple
+  "Transforms a RowResult into a tuple."
   [row-result]
   (let [columns (.getColumns (.getSchema row-result))]
     (into {}
@@ -67,8 +67,8 @@
                           9 (.getLong row-result idx))]
               {(keyword name) value})))))
 
-;; Drains a scanner to a vector of tuples.
 (defn drain-scanner->tuples
+  "Drains a scanner to a vector of tuples."
   [scanner]
   (let [result (atom [])]
     (while (.hasMoreRows scanner)
