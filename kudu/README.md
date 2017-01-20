@@ -4,7 +4,19 @@ A Clojure library designed to ... well, that part is up to you.
 
 ## Usage
 
-FIXME
+To run against pre-built Kudu binaries, put `kudu-master`, `kudu-tserver`
+and `kudu` binaries at `../../build/latest/bin` relative to this directory
+and then run
+
+```sh
+cd $JEPSEN_ROOT/kudu
+lein test
+```
+
+The binaries should be built for the target Debian Linux distro running
+at the DB nodes.  The Kudu binaries they should not depend on Kudu dynamic
+libraries -- those should be linked in statically.  Kudu binaries built
+in release configuration are statically linked, as needed.
 
 ## Notes on running jepsen.kudu on Docker for Mac
 

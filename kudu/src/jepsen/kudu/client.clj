@@ -1,5 +1,22 @@
+;; Licensed to the Apache Software Foundation (ASF) under one
+;; or more contributor license agreements. See the NOTICE file
+;; distributed with this work for additional information
+;; regarding copyright ownership. The ASF licenses this file
+;; to you under the Apache License, Version 2.0 (the
+;; "License"); you may not use this file except in compliance
+;; with the License. You may obtain a copy of the License at
+;;
+;;   http://www.apache.org/licenses/LICENSE-2.0
+;;
+;; Unless required by applicable law or agreed to in writing,
+;; software distributed under the License is distributed on an
+;; "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+;; KIND, either express or implied. See the License for the
+;; specific language governing permissions and limitations
+;; under the License.
+
 (ns jepsen.kudu.client
-  "Thin wrappers around Kudu's java client."
+  "Thin wrappers around Kudu Java client."
   (:require [clojure.tools.logging :refer :all]
             [clojure.pprint :refer [pprint]])
   (:import [org.apache.kudu ColumnSchema
@@ -34,8 +51,9 @@
   (try (.close sync-client) (catch Exception e (info "Error closing client: " e))))
 
 (defn column-schema
-  ([name type] (.build (.key (new ColumnSchema$ColumnSchemaBuilder name, type) false)))
-  ([name type key?] (.build (.key (new ColumnSchema$ColumnSchemaBuilder name, type) key?))))
+  ([name type] (column-schema name type false))
+  ([name type key?]
+   (-> (new ColumnSchema$ColumnSchemaBuilder name, type) (.key key?) .build)))
 
 (defn create-table
   [sync-client name schema options]
@@ -48,31 +66,30 @@
 (defn rr->tuple
   "Transforms a RowResult into a tuple."
   [row-result]
-  (let [columns (.getColumns (.getSchema row-result))]
+  (let [columns (-> row-result .getSchema .getColumns)]
     (into {}
           (for [[idx column] (map-indexed vector columns)]
             (let [name (.getName column)
-                  value (case (.ordinal (.getType column))
-                          ;; Clojure transforms enums in literals
-                          ;; so we have to use ordinals :(
-                          0 (.getByte row-result idx)
-                          1 (.getShort row-result idx)
-                          2 (.getInt row-result idx)
-                          3 (.getLong row-result idx)
-                          4 (.getBinaryCopy row-result idx)
-                          5 (.getString row-result idx)
-                          6 (.getBoolean row-result idx)
-                          7 (.getFloat row-result idx)
-                          8 (.getDouble row-result idx)
-                          9 (.getLong row-result idx))]
+                  type (.getType column)
+                  value (condp = type
+                          Type/INT8 (.getByte row-result idx)
+                          Type/INT16 (.getShort row-result idx)
+                          Type/INT32 (.getInt row-result idx)
+                          Type/INT64 (.getLong row-result idx)
+                          Type/BINARY (.getBinaryCopy row-result idx)
+                          Type/STRING (.getString row-result idx)
+                          Type/BOOL (.getBoolean row-result idx)
+                          Type/FLOAT (.getFloat row-result idx)
+                          Type/DOUBLE (.getDouble row-result idx)
+                          Type/UNIXTIME_MICROS (.getLong row-result idx))]
               {(keyword name) value})))))
 
-(defn drain-scanner->tuples
+(defn drain-scanner-to-tuples
   "Drains a scanner to a vector of tuples."
   [scanner]
   (let [result (atom [])]
     (while (.hasMoreRows scanner)
-      (do (let [rr-iter (.nextRows scanner)]
-            (while (.hasNext rr-iter)
-              (do (swap! result conj (rr->tuple (.next rr-iter))))))))
+      (let [rr-iter (.nextRows scanner)]
+        (while (.hasNext rr-iter)
+          (swap! result conj (rr->tuple (.next rr-iter))))))
     @result))

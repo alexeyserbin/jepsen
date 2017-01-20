@@ -1,7 +1,23 @@
+;; Licensed to the Apache Software Foundation (ASF) under one
+;; or more contributor license agreements. See the NOTICE file
+;; distributed with this work for additional information
+;; regarding copyright ownership. The ASF licenses this file
+;; to you under the Apache License, Version 2.0 (the
+;; "License"); you may not use this file except in compliance
+;; with the License. You may obtain a copy of the License at
+;;
+;;   http://www.apache.org/licenses/LICENSE-2.0
+;;
+;; Unless required by applicable law or agreed to in writing,
+;; software distributed under the License is distributed on an
+;; "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+;; KIND, either express or implied. See the License for the
+;; specific language governing permissions and limitations
+;; under the License.
+
 (ns jepsen.kudu.nemesis
-  "Nemesis for Apache Kudu."
+  "Nemeses for Apache Kudu."
   (:refer-clojure :exclude [test])
-  (:use clojure.pprint)
   (:require [jepsen
              [client :as client]
              [control :as c]
@@ -14,8 +30,8 @@
 
 (defn tserver-partitioner
   "Tablet server partitioner: cut network links between tablet servers
-  in respond to :start operation: cut network links as defined by
-  (grudge nodes), and restore them back in respond in :stop operation."
+  in response to :start operation: cut network links as defined by
+  (grudge nodes), and restore them back in response to :stop operation."
   [grudge]
   (reify client/Client
     (setup! [this test _]
@@ -94,10 +110,10 @@
    (tserver-start-stopper targeter
                           (fn start [t n]
                             (c/su (c/exec :killall :-s :SIGKILL :kudu-tserver))
-                            ["Killed kudu-tserver"])
+                            [:killed :kudu-tserver])
                           (fn stop [t n]
                             (ku/start-kudu-tserver t n)
-                            ["Started kudu-tserver"]))))
+                            [:started :kudu-tserver]))))
 
 (defn tserver-hammer-time
   "Responds to `{:f :start}` by pausing the tablet server name on a given node
@@ -105,12 +121,12 @@
   Picks the node(s) to pause using `(targeter list-of-nodes)`, which defaults
   to `rand-nth`.  Targeter may return either a single node or a collection
   of nodes."
-  ([process] (tserver-hammer-time rand-nth process))
-  ([targeter process]
+  ([] (tserver-hammer-time rand-nth))
+  ([targeter]
    (tserver-start-stopper targeter
                        (fn start [t n]
                          (c/su (c/exec :killall :-s "STOP" :kudu-tserver))
-                         [:paused process])
+                         [:paused :kudu-tserver])
                        (fn stop [t n]
                          (c/su (c/exec :killall :-s "CONT" :kudu-tserver))
-                         [:resumed process]))))
+                         [:resumed :kudu-tserver]))))

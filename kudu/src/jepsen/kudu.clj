@@ -1,3 +1,20 @@
+;; Licensed to the Apache Software Foundation (ASF) under one
+;; or more contributor license agreements. See the NOTICE file
+;; distributed with this work for additional information
+;; regarding copyright ownership. The ASF licenses this file
+;; to you under the Apache License, Version 2.0 (the
+;; "License"); you may not use this file except in compliance
+;; with the License. You may obtain a copy of the License at
+;;
+;;   http://www.apache.org/licenses/LICENSE-2.0
+;;
+;; Unless required by applicable law or agreed to in writing,
+;; software distributed under the License is distributed on an
+;; "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+;; KIND, either express or implied. See the License for the
+;; specific language governing permissions and limitations
+;; under the License.
+
 (ns jepsen.kudu
   "Tests for Apache Kudu"
   (:require [clojure.tools.logging :refer :all]
@@ -18,14 +35,13 @@
             [jepsen.kudu.util :as ku]))
 
 (defn db
+  "The setup/teardown procedure for a Kudu node.  A node can run either
+  a master or a tablet server."
   []
-  "The setup/teardown procedures for an Apache Kudu DB node.  The node can
-  runs either a master or a tablet server."
   (reify db/DB
     (setup! [_ test node]
+      (info node "Setting up environment")
       (c/su
-        (info node "Setting up environment")
-
         ;; Restore the network.  This is to clean-up left-overs from prior
         ;; nemesis-induced grudges.
         (meh (cnet/heal))
@@ -34,19 +50,24 @@
 
         (ku/prepare-node test node)
         (ku/sync-time test node)
-        (ku/start-kudu test node)
-
-        (info node "Kudu ready")))
+        (ku/start-kudu test node))
+      (info node "Kudu ready"))
 
     (teardown! [_ test node]
+      (info node "Tearing down Kudu")
       (c/su
-        (info node "Tearing down Kudu")
         (when (.contains (:tservers test) node)
           (ku/stop-kudu-tserver test node))
         (when (.contains (:masters test) node)
-          (ku/stop-kudu-master test node))
-        ;; TODO collect log-files and collect table data, for debugging.
-        (info node "Kudu stopped")))))
+          (ku/stop-kudu-master test node)))
+        ;; TODO collect table data for debugging
+      (info node "Kudu stopped"))
+
+    db/LogFiles
+    (log-files [_ test node]
+      (cond-> []
+        (.contains (:tservers test) node) (conj ku/kudu-tserver-log-file)
+        (.contains (:masters test) node) (conj ku/kudu-master-log-file)))))
 
 
 (defn merge-options
@@ -72,8 +93,8 @@
         derived-opts {:master-addresses
                       (ku/concatenate-addresses ku/master-rpc-port
                                                 (:masters custom-opts))
-                      :nodes (into [] (concat (:tservers custom-opts)
-                                              (:masters custom-opts)))}]
+                      :nodes (vec (concat (:tservers custom-opts)
+                                          (:masters custom-opts)))}]
     (merge custom-opts derived-opts)))
 
 ;; Common setup for all kudu tests.

@@ -15,7 +15,16 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# This overrides all flags in a flag file
---unlock_experimental_flags
---unlock_unsafe_flags
---logtostderr
+tinker panic 0
+enable kernel
+enable ntp
+enable stats
+statistics loopstats peerstats clockstats sysstats
+filegen loopstats file loopstats type day enable
+filegen peerstats file peerstats type day enable
+filegen clockstats file clockstats type day enable
+filegen sysstats file sysstats type day enable
+logconfig =syncall +clockall +sysall +peerall
+logfile /var/log/ntpd.log
+statsdir /var/log/ntpstats/
+driftfile /var/lib/ntp/ntp.drift
