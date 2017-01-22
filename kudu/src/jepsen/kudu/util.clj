@@ -33,17 +33,14 @@
   (str/join "/" components))
 
 ;; TODO(aserbin): make it possible to set the version via a run-time option.
-;;
-;; The empty string corresponds to the latest snapshot from the main trunk.
-;; To run against some other branch, set to "<major>.<minor>.<patch>";
-;; e.g. set "1.2.0" to run against packages built for Kudu 1.2.0 release.
-(def kudu-pkg-version "")
+(def kudu-pkg-version "1.2.0")
 
 (def kudu-repo-url
   (str "http://repos.jenkins.cloudera.com/kudu" kudu-pkg-version
        "-nightly/debian/jessie/amd64/kudu"))
 (def kudu-repo-name "kudu-nightly")
-(def kudu-repo-apt-line (str "deb " kudu-repo-url " jessie-kudu contrib"))
+(def kudu-repo-apt-line
+  (str "deb " kudu-repo-url " jessie-kudu" kudu-pkg-version " contrib"))
 (def kudu-required-packages
   "The set of the required system packages (more are installed by dependency)."
   [:libsasl2-modules
@@ -318,11 +315,11 @@
   (when (.contains (:masters test) node)
     (when-not (debian/installed? kudu-master-pkg)
       (info node "Installing kudu-master package")
-      (debian/install kudu-master-pkg)))
+      (debian/install [kudu-master-pkg])))
   (when (.contains (:tservers test) node)
     (when-not (debian/installed? kudu-tserver-pkg)
       (info node "Installing kudu-tserver package")
-      (debian/install kudu-tserver-pkg))))
+      (debian/install [kudu-tserver-pkg]))))
 
 
 (defn prepare-node-with-binaries

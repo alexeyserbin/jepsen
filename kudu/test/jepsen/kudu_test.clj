@@ -81,4 +81,4 @@
   [opts]
   `(instantiate-tests register-test register-test-configs ~opts))
 
-(instantiate-all-kudu-tests {})
+(instantiate-all-kudu-tests {:use-packages? true})
